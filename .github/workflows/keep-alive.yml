@@ -1,0 +1,37 @@
+name: Supabase Keep-Alive
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  # runs every 6 days at midnight UTC (you can adjust frequency)
+  schedule:
+    #- cron: '0 0 */6 * *' # every 6th day at 00:00 UTC
+    - cron: '0 0 * * *'    # every day at 00:00 UTC
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  ping:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: Ping Supabase via REST
+
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+        run: |
+          response=$(curl -s -X GET "${SUPABASE_URL}/rest/v1/" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
+          if [ -z "$response" ]; then
+            echo "❌ Empty response – ping failed." >&2
+            exit 1
+          fi
+          echo "✅ Supabase ping successful."
