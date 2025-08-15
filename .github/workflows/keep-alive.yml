@@ -1,37 +1,88 @@
 name: Supabase Keep-Alive
 
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  # runs every 6 days at midnight UTC (you can adjust frequency)
   schedule:
-    #- cron: '0 0 */6 * *' # every 6th day at 00:00 UTC
     - cron: '0 0 * * *'    # every day at 00:00 UTC
+  workflow_dispatch:       # allows manual triggering
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  ping:
-    # The type of runner that the job will run on
+  keep-alive:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    
     steps:
-      - name: Ping Supabase via REST
-
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Keep Supabase Project Alive
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
         run: |
-          response=$(curl -s -X GET "${SUPABASE_URL}/rest/v1/" \
+          echo "🚀 Starting Supabase keep-alive ping..."
+          
+          # Method 1: Ping the REST API root
+          echo "📡 Pinging REST API..."
+          rest_response=$(curl -s -w "%{http_code}" -o /tmp/rest_response.txt \
+            -X GET "${SUPABASE_URL}/rest/v1/" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
-          if [ -z "$response" ]; then
-            echo "❌ Empty response – ping failed." >&2
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json")
+          
+          echo "REST API Status Code: $rest_response"
+          if [ "$rest_response" = "200" ]; then
+            echo "✅ REST API ping successful"
+          else
+            echo "⚠️ REST API ping returned status: $rest_response"
+          fi
+          
+          # Method 2: Try a simple database query (more likely to wake up the database)
+          echo "🗄️ Pinging database with simple query..."
+          db_response=$(curl -s -w "%{http_code}" -o /tmp/db_response.txt \
+            -X POST "${SUPABASE_URL}/rest/v1/rpc/ping" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' || echo "404")
+          
+          echo "Database ping status: $db_response"
+          
+          # Method 3: Alternative database ping using a simple SELECT
+          echo "🔍 Trying alternative database ping..."
+          alt_response=$(curl -s -w "%{http_code}" -o /tmp/alt_response.txt \
+            -X GET "${SUPABASE_URL}/rest/v1/?select=1" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json")
+          
+          echo "Alternative ping status: $alt_response"
+          
+          # Method 4: Ping Supabase Auth (this often keeps the project active)
+          echo "🔐 Pinging Auth service..."
+          auth_response=$(curl -s -w "%{http_code}" -o /tmp/auth_response.txt \
+            -X GET "${SUPABASE_URL}/auth/v1/settings" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}")
+          
+          echo "Auth ping status: $auth_response"
+          
+          # Check if any method was successful
+          if [ "$rest_response" = "200" ] || [ "$db_response" = "200" ] || [ "$alt_response" = "200" ] || [ "$auth_response" = "200" ]; then
+            echo "✅ Supabase keep-alive successful! At least one service responded."
+          else
+            echo "❌ All ping methods failed. Check your secrets and project status."
+            echo "REST: $rest_response, DB: $db_response, Alt: $alt_response, Auth: $auth_response"
             exit 1
           fi
-          echo "✅ Supabase ping successful."
+          
+          echo "🎉 Keep-alive completed at $(date)"
+
+      - name: Log Response Details (for debugging)
+        if: failure()
+        run: |
+          echo "=== REST Response ==="
+          cat /tmp/rest_response.txt || echo "No REST response file"
+          echo "=== DB Response ==="
+          cat /tmp/db_response.txt || echo "No DB response file"  
+          echo "=== Alt Response ==="
+          cat /tmp/alt_response.txt || echo "No Alt response file"
+          echo "=== Auth Response ==="
+          cat /tmp/auth_response.txt || echo "No Auth response file"
