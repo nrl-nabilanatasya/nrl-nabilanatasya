@@ -2,87 +2,47 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: '0 0 * * *'    # every day at 00:00 UTC
-  workflow_dispatch:       # allows manual triggering
+    - cron: '0 0 */3 * *'   # every 3 days at 00:00 UTC
+  workflow_dispatch:          # allows manual triggering
+
+permissions:
+  contents: write
 
 jobs:
   keep-alive:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Keep Supabase Project Alive
+
+      - name: Ping Supabase
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "🚀 Starting Supabase keep-alive ping..."
-          
-          # Method 1: Ping the REST API root
-          echo "📡 Pinging REST API..."
-          rest_response=$(curl -s -w "%{http_code}" -o /tmp/rest_response.txt \
+          echo "Pinging Supabase REST API..."
+          response=$(curl -s -w "%{http_code}" -o /tmp/response.txt \
             -X GET "${SUPABASE_URL}/rest/v1/" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json")
-          
-          echo "REST API Status Code: $rest_response"
-          if [ "$rest_response" = "200" ]; then
-            echo "✅ REST API ping successful"
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+
+          echo "Status: $response"
+          cat /tmp/response.txt
+
+          if [ "$response" = "200" ]; then
+            echo "Supabase ping successful"
           else
-            echo "⚠️ REST API ping returned status: $rest_response"
-          fi
-          
-          # Method 2: Try a simple database query (more likely to wake up the database)
-          echo "🗄️ Pinging database with simple query..."
-          db_response=$(curl -s -w "%{http_code}" -o /tmp/db_response.txt \
-            -X POST "${SUPABASE_URL}/rest/v1/rpc/ping" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{}' || echo "404")
-          
-          echo "Database ping status: $db_response"
-          
-          # Method 3: Alternative database ping using a simple SELECT
-          echo "🔍 Trying alternative database ping..."
-          alt_response=$(curl -s -w "%{http_code}" -o /tmp/alt_response.txt \
-            -X GET "${SUPABASE_URL}/rest/v1/?select=1" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json")
-          
-          echo "Alternative ping status: $alt_response"
-          
-          # Method 4: Ping Supabase Auth (this often keeps the project active)
-          echo "🔐 Pinging Auth service..."
-          auth_response=$(curl -s -w "%{http_code}" -o /tmp/auth_response.txt \
-            -X GET "${SUPABASE_URL}/auth/v1/settings" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}")
-          
-          echo "Auth ping status: $auth_response"
-          
-          # Check if any method was successful
-          if [ "$rest_response" = "200" ] || [ "$db_response" = "200" ] || [ "$alt_response" = "200" ] || [ "$auth_response" = "200" ]; then
-            echo "✅ Supabase keep-alive successful! At least one service responded."
-          else
-            echo "❌ All ping methods failed. Check your secrets and project status."
-            echo "REST: $rest_response, DB: $db_response, Alt: $alt_response, Auth: $auth_response"
+            echo "Ping failed with status: $response"
             exit 1
           fi
-          
-          echo "🎉 Keep-alive completed at $(date)"
 
-      - name: Log Response Details (for debugging)
-        if: failure()
+      - name: Keep workflow alive
         run: |
-          echo "=== REST Response ==="
-          cat /tmp/rest_response.txt || echo "No REST response file"
-          echo "=== DB Response ==="
-          cat /tmp/db_response.txt || echo "No DB response file"  
-          echo "=== Alt Response ==="
-          cat /tmp/alt_response.txt || echo "No Alt response file"
-          echo "=== Auth Response ==="
-          cat /tmp/auth_response.txt || echo "No Auth response file"
+          # GitHub disables scheduled workflows after 60 days of repo inactivity
+          # This dummy commit keeps the repo active
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          date > .last-ping
+          git add .last-ping
+          git diff --cached --quiet || git commit -m "keep-alive: $(date -u '+%Y-%m-%d')" && git push
