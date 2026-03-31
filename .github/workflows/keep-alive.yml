@@ -16,24 +16,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ping Supabase
+      - name: Ping Supabase (real DB query)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "Pinging Supabase REST API..."
-          response=$(curl -s -w "%{http_code}" -o /tmp/response.txt \
-            -X GET "${SUPABASE_URL}/rest/v1/" \
+          echo "Querying Supabase database..."
+          response=$(curl -s -w "\n%{http_code}" \
+            -X GET "${SUPABASE_URL}/rest/v1/jm_categories?select=id&limit=1" \
             -H "apikey: ${SUPABASE_ANON_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
 
-          echo "Status: $response"
-          cat /tmp/response.txt
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
 
-          if [ "$response" = "200" ]; then
-            echo "Supabase ping successful"
+          echo "Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" = "200" ]; then
+            echo "Supabase DB query successful"
           else
-            echo "Ping failed with status: $response"
+            echo "Query failed with status: $http_code"
             exit 1
           fi
 
