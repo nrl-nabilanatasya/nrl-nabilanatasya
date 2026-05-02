@@ -2,8 +2,8 @@ name: Supabase Keep-Alive
 
 on:
   schedule:
-    - cron: '0 0 */3 * *'   # every 3 days at 00:00 UTC
-  workflow_dispatch:          # allows manual triggering
+    - cron: '0 0 * * *'       # every day at 00:00 UTC (8:00 AM MYT)
+  workflow_dispatch:            # allows manual triggering
 
 permissions:
   contents: write
@@ -16,29 +16,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ping Supabase (real DB query)
+      - name: Ping Supabase (real DB query with retry)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          echo "Querying Supabase database..."
-          response=$(curl -s -w "\n%{http_code}" \
-            -X GET "${SUPABASE_URL}/rest/v1/jm_categories?select=id&limit=1" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          max_retries=3
+          retry_delay=30
 
-          http_code=$(echo "$response" | tail -1)
-          body=$(echo "$response" | head -n -1)
+          for attempt in $(seq 1 $max_retries); do
+            echo "Attempt $attempt/$max_retries — Querying Supabase..."
+            response=$(curl -s -w "\n%{http_code}" --max-time 30 \
+              -X GET "${SUPABASE_URL}/rest/v1/jm_categories?select=id&limit=1" \
+              -H "apikey: ${SUPABASE_ANON_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
 
-          echo "Status: $http_code"
-          echo "Response: $body"
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | head -n -1)
 
-          if [ "$http_code" = "200" ]; then
-            echo "Supabase DB query successful"
-          else
-            echo "Query failed with status: $http_code"
-            exit 1
-          fi
+            echo "Status: $http_code"
+            echo "Response: $body"
+
+            if [ "$http_code" = "200" ]; then
+              echo "Supabase DB query successful"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$max_retries" ]; then
+              echo "Retrying in ${retry_delay}s..."
+              sleep $retry_delay
+            fi
+          done
+
+          echo "All $max_retries attempts failed"
+          exit 1
 
       - name: Keep workflow alive
         run: |
